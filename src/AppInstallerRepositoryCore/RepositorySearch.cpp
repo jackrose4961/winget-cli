@@ -84,33 +84,26 @@ namespace AppInstaller::Repository
         case PackageVersionMetadata::Publisher: return "Publisher"sv;
         case PackageVersionMetadata::InstalledLocale: return "InstalledLocale"sv;
         case PackageVersionMetadata::TrackingWriteTime: return "TrackingWriteTime"sv;
+        case PackageVersionMetadata::InstalledArchitecture: return "InstalledArchitecture"sv;
+        case PackageVersionMetadata::PinnedState: return "PinnedState"sv;
+        case PackageVersionMetadata::UserIntentArchitecture: return "UserIntentArchitecture"sv;
+        case PackageVersionMetadata::UserIntentLocale: return "UserIntentLocale"sv;
         default: return "Unknown"sv;
         }
     }
 
-    std::string_view ToString(PackagePinnedState state)
+    bool PackageVersionKey::IsMatch(const PackageVersionKey& other) const
     {
-        switch (state)
-        {
-        case PackagePinnedState::PinnedByManifest: return "PinnedByManifest"sv;
-        case PackagePinnedState::NotPinned:
-        default:
-            return "Unknown";
-        }
+        return
+            ((other.SourceId.empty() || other.SourceId == SourceId) &&
+             (other.Version.empty() || Utility::ICUCaseInsensitiveEquals(other.Version, Version)) &&
+             (other.Channel.empty() || Utility::ICUCaseInsensitiveEquals(other.Channel, Channel)));
     }
 
-    PackagePinnedState ConvertToPackagePinnedStateEnum(std::string_view in)
+    bool PackageVersionKey::IsDefaultLatest() const
     {
-        if (Utility::CaseInsensitiveEquals(in, "PinnedByManifest"sv))
-        {
-            return PackagePinnedState::PinnedByManifest;
-        }
-        else
-        {
-            return PackagePinnedState::NotPinned;
-        }
+        return Version.empty() && Channel.empty();
     }
-
 
     const char* UnsupportedRequestException::what() const noexcept
     {

@@ -7,6 +7,7 @@
 #include "winget/JsonUtil.h"
 #include "winget/Settings.h"
 #include "winget/UserSettings.h"
+#include "winget/filesystem.h"
 
 #include "AppInstallerArchitecture.h"
 #include "winget/Locale.h"
@@ -18,6 +19,7 @@ namespace AppInstaller::Settings
     using namespace Utility;
     using namespace Logging;
     using namespace JSON;
+    using namespace Filesystem;
 
     static constexpr std::string_view s_SettingEmpty =
         R"({
@@ -93,11 +95,22 @@ namespace AppInstaller::Settings
 
         std::optional<Json::Value> ParseFile(const StreamDefinition& setting, std::vector<UserSettings::Warning>& warnings)
         {
-            auto stream = Stream{ setting }.Get();
-            if (stream)
+            try
             {
-                std::string settingsContentStr = Utility::ReadEntireStream(*stream);
-                return ParseSettingsContent(settingsContentStr, setting.Name, warnings);
+                auto stream = Stream{ setting }.Get();
+                if (stream)
+                {
+                    std::string settingsContentStr = Utility::ReadEntireStream(*stream);
+                    return ParseSettingsContent(settingsContentStr, setting.Name, warnings);
+                }
+            }
+            catch (const std::exception& e)
+            {
+                AICLI_LOG(Core, Error, << "Failed to read " << setting.Name << "; Reason: " << e.what());
+            }
+            catch (...)
+            {
+                AICLI_LOG(Core, Error, << "Failed to read " << setting.Name << "; Reason unknown.");
             }
 
             return {};
@@ -222,38 +235,53 @@ namespace AppInstaller::Settings
 
         WINGET_VALIDATE_SIGNATURE(ProgressBarVisualStyle)
         {
-            // progressBar property possible values
-            static constexpr std::string_view s_progressBar_Accent = "accent";
-            static constexpr std::string_view s_progressBar_Rainbow = "rainbow";
-            static constexpr std::string_view s_progressBar_Retro = "retro";
+            std::string lowerValue = ToLower(value);
 
-            if (Utility::CaseInsensitiveEquals(value, s_progressBar_Accent))
+            if (value == "accent")
             {
                 return VisualStyle::Accent;
             }
-            else if (Utility::CaseInsensitiveEquals(value, s_progressBar_Rainbow))
+            else if (value == "rainbow")
             {
                 return VisualStyle::Rainbow;
             }
-            else if (Utility::CaseInsensitiveEquals(value, s_progressBar_Retro))
+            else if (value == "retro")
             {
                 return VisualStyle::Retro;
+            }
+            else if (value == "sixel")
+            {
+                return VisualStyle::Sixel;
+            }
+            else if (value == "disabled")
+            {
+                return VisualStyle::Disabled;
             }
 
             return {};
         }
 
+        WINGET_VALIDATE_PASS_THROUGH(EnableSixelDisplay)
         WINGET_VALIDATE_PASS_THROUGH(EFExperimentalCmd)
         WINGET_VALIDATE_PASS_THROUGH(EFExperimentalArg)
-        WINGET_VALIDATE_PASS_THROUGH(EFDependencies)
         WINGET_VALIDATE_PASS_THROUGH(EFDirectMSI)
-        WINGET_VALIDATE_PASS_THROUGH(EFZipInstall)
+        WINGET_VALIDATE_PASS_THROUGH(EFResume)
+        WINGET_VALIDATE_PASS_THROUGH(EFConfiguration03)
+        WINGET_VALIDATE_PASS_THROUGH(EFConfigureExport)
+        WINGET_VALIDATE_PASS_THROUGH(EFFonts)
+        WINGET_VALIDATE_PASS_THROUGH(AnonymizePathForDisplay)
         WINGET_VALIDATE_PASS_THROUGH(TelemetryDisable)
         WINGET_VALIDATE_PASS_THROUGH(InteractivityDisable)
-        WINGET_VALIDATE_PASS_THROUGH(EnableSelfInitiatedMinidump)
-        WINGET_VALIDATE_PASS_THROUGH(InstallIgnoreWarnings)
+        WINGET_VALIDATE_PASS_THROUGH(InstallSkipDependencies)
         WINGET_VALIDATE_PASS_THROUGH(DisableInstallNotes)
         WINGET_VALIDATE_PASS_THROUGH(UninstallPurgePortablePackage)
+        WINGET_VALIDATE_PASS_THROUGH(NetworkWingetAlternateSourceURL)
+        WINGET_VALIDATE_PASS_THROUGH(MaxResumes)
+
+#ifndef AICLI_DISABLE_TEST_HOOKS
+        WINGET_VALIDATE_PASS_THROUGH(EnableSelfInitiatedMinidump)
+        WINGET_VALIDATE_PASS_THROUGH(KeepAllLogFiles)
+#endif
 
         WINGET_VALIDATE_SIGNATURE(PortablePackageUserRoot)
         {
@@ -265,10 +293,28 @@ namespace AppInstaller::Settings
             return ValidatePathValue(value);
         }
 
+        WINGET_VALIDATE_SIGNATURE(ArchiveExtractionMethod)
+        {
+            static constexpr std::string_view s_archiveExtractionMethod_shellApi = "shellApi";
+            static constexpr std::string_view s_archiveExtractionMethod_tar = "tar";
+
+            if (Utility::CaseInsensitiveEquals(value, s_archiveExtractionMethod_tar))
+            {
+                return Archive::ExtractionMethod::Tar;
+            }
+            else if (Utility::CaseInsensitiveEquals(value, s_archiveExtractionMethod_shellApi))
+            {
+                return Archive::ExtractionMethod::ShellApi;
+            }
+
+            return {};
+        }
+
         WINGET_VALIDATE_SIGNATURE(InstallArchitecturePreference)
         {
             std::vector<Utility::Architecture> archs;
-            for (auto const& i : value) {
+            for (auto const& i : value)
+            {
                 Utility::Architecture arch = Utility::ConvertToArchitectureEnum(i);
                 if (Utility::IsApplicableArchitecture(arch) == Utility::InapplicableArchitecture)
                 {
@@ -291,11 +337,11 @@ namespace AppInstaller::Settings
 
             if (Utility::CaseInsensitiveEquals(value, s_scope_user))
             {
-                return ScopePreference::User;
+                return Manifest::ScopeEnum::User;
             }
             else if (Utility::CaseInsensitiveEquals(value, s_scope_machine))
             {
-                return ScopePreference::Machine;
+                return Manifest::ScopeEnum::Machine;
             }
 
             return {};
@@ -324,7 +370,37 @@ namespace AppInstaller::Settings
             return SettingMapping<Setting::InstallLocalePreference>::Validate(value);
         }
 
+        WINGET_VALIDATE_SIGNATURE(InstallerTypePreference)
+        {
+            std::vector<Manifest::InstallerTypeEnum> installerTypes;
+            for (auto const& i : value)
+            {
+                Manifest::InstallerTypeEnum installerType = Manifest::ConvertToInstallerTypeEnum(i);
+                if (installerType == Manifest::InstallerTypeEnum::Unknown)
+                {
+                    return {};
+                }
+                installerTypes.emplace_back(installerType);
+            }
+            return installerTypes;
+        }
+
+        WINGET_VALIDATE_SIGNATURE(InstallerTypeRequirement)
+        {
+            return SettingMapping<Setting::InstallerTypePreference>::Validate(value);
+        }
+
         WINGET_VALIDATE_SIGNATURE(InstallDefaultRoot)
+        {
+            return ValidatePathValue(value);
+        }
+
+        WINGET_VALIDATE_SIGNATURE(DownloadDefaultDirectory)
+        {
+            return ValidatePathValue(value);
+        }
+
+        WINGET_VALIDATE_SIGNATURE(ConfigureDefaultModuleRoot)
         {
             return ValidatePathValue(value);
         }
@@ -386,6 +462,18 @@ namespace AppInstaller::Settings
                 return Level::Crit;
             }
             return {};
+        }
+
+        WINGET_VALIDATE_SIGNATURE(LoggingChannelPreference)
+        {
+            Logging::Channel result = Logging::Channel::None;
+
+            for (auto const& entry : value)
+            {
+                result |= GetChannelFromName(entry);
+            }
+
+            return result;
         }
     }
 
@@ -503,6 +591,16 @@ namespace AppInstaller::Settings
                     m_type = UserSettingsType::Backup;
                     settingsRoot = settingsBackupJson.value();
                 }
+                else
+                {
+                    // Settings and back up didn't parse or exist. If they exist then warn the user.
+                    auto settingsPath = Stream{ Stream::PrimaryUserSettings }.GetPath();
+                    auto backupPath = Stream{ Stream::BackupUserSettings }.GetPath();
+                    if (std::filesystem::exists(settingsPath) || std::filesystem::exists(backupPath))
+                    {
+                        m_warnings.emplace_back(StringResource::String::SettingsWarningUsingDefault);
+                    }
+                }
             }
         }
 
@@ -541,8 +639,15 @@ namespace AppInstaller::Settings
         }
     }
 
-    std::filesystem::path UserSettings::SettingsFilePath()
+    std::filesystem::path UserSettings::SettingsFilePath(bool forDisplay)
     {
-        return Stream{ Stream::PrimaryUserSettings }.GetPath();
+        auto path = Stream{ Stream::PrimaryUserSettings }.GetPath();
+
+        if (forDisplay && Settings::User().Get<Setting::AnonymizePathForDisplay>())
+        {
+            ReplaceCommonPathPrefix(path, GetKnownFolderPath(FOLDERID_LocalAppData), "%LOCALAPPDATA%");
+        }
+
+        return path;
     }
 }
