@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 #include "pch.h"
 #include "PathPartTable.h"
-#include "SQLiteStatementBuilder.h"
+#include <winget/SQLiteStatementBuilder.h>
 
 
 namespace AppInstaller::Repository::Microsoft::Schema::V1_0
@@ -157,6 +157,14 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
         createIndexBuilder.Execute(connection);
 
         savepoint.Commit();
+    }
+
+    void PathPartTable::Drop(SQLite::Connection& connection)
+    {
+        SQLite::Builder::StatementBuilder dropTableBuilder;
+        dropTableBuilder.DropTable(s_PathPartTable_Table_Name);
+
+        dropTableBuilder.Execute(connection);
     }
 
     std::string_view PathPartTable::TableName()
@@ -368,7 +376,7 @@ namespace AppInstaller::Repository::Microsoft::Schema::V1_0
     {
         using QCol = SQLite::Builder::QualifiedColumn;
 
-        // Build a select statement to find pathpart rows containing references to parents with non-existent rowids
+        // Build a select statement to find pathpart rows containing references to parents with nonexistent rowids
         // Such as:
         // Select l.rowid, l.parent from pathparts as l left outer join pathparts as r on l.parent = r.rowid where l.parent is not null and r.pathpart is null
         constexpr std::string_view s_left = "left"sv;

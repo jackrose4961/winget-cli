@@ -9,13 +9,18 @@
 #include <objbase.h>
 #include <urlmon.h>
 #include <Msi.h>
+#include <KnownFolders.h>
 
 #include <catch.hpp>
+
+#include <json/json.h>
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
 #include <winrt/Windows.Globalization.h>
 #include <winrt/Windows.Management.Deployment.h>
+#include <winrt/Windows.Web.Http.h>
+#include <wrl/client.h>
 
 #include <wil/filesystem.h>
 #include <wil/resource.h>
